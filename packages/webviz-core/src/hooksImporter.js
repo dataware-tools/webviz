@@ -16,6 +16,7 @@ lazily importing this file at runtime.
 */
 
 export function panelsByCategory() {
+  // const Sample = require("webviz-core/src/panels/Sample").default;
   const Audio = require("webviz-core/src/panels/Audio").default;
   const DiagnosticStatusPanel = require("webviz-core/src/panels/diagnostics/DiagnosticStatusPanel").default;
   const DiagnosticSummary = require("webviz-core/src/panels/diagnostics/DiagnosticSummary").default;
@@ -72,6 +73,8 @@ export function panelsByCategory() {
     { title: "Playback Performance", component: PlaybackPerformance },
     { title: "Subscribe to List", component: SubscribeToList },
   ];
+
+  // const sceneViewer = [{ title: "Sample", component: Sample }];
 
   return { ros, utilities, debugging };
 }
