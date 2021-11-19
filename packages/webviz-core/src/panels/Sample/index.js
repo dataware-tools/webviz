@@ -13,8 +13,6 @@ import styled from "styled-components";
 
 import Panel from "webviz-core/src/components/Panel";
 import PanelToolbar from "webviz-core/src/components/PanelToolbar";
-import useGlobalVariables from "webviz-core/src/hooks/useGlobalVariables";
-import { ROSBRIDGE_WEBSOCKET_URL_QUERY_KEY } from "webviz-core/src/util/globalConstants";
 
 const Container = styled.div`
   padding: 16px;

@@ -103,7 +103,7 @@ const defaultHooks = {
       { label: "ROS", key: "ros" },
       { label: "Utilities", key: "utilities" },
       { label: "Debugging", key: "debugging" },
-      // { label: "SceneViewer", key: "sceneViewer" },
+      { label: "SceneViewer", key: "sceneViewer" },
     ];
   },
   panelsByCategory: () => {
