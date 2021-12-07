@@ -244,7 +244,7 @@ export default class RosbridgePlayer implements Player {
 
     // Parse messages and get current-time and rosbag information
     for (const msg of this._parsedMessages) {
-      if (msg.topic === "/clock") {
+      if (msg.topic === "/rosbag_player_controller/clock") {
         console.log(`get "/clock"`);
         console.log(msg);
         this._isPlaying = toMicroSec(this._currentTime) !== toMicroSec(msg.message.clock);
@@ -329,7 +329,7 @@ export default class RosbridgePlayer implements Player {
   setSubscriptions(subscriptions: SubscribePayload[]) {
     console.log("setSubscriptions");
     const subscriptionsRequiredByRosbridgePlayer = [
-      { topic: "/clock", format: "parsedMessages" },
+      { topic: "/rosbag_player_controller/clock", format: "parsedMessages" },
       { topic: "/rosbag_player_controller/rosbag_start_time", format: "parsedMessages" },
       { topic: "/rosbag_player_controller/rosbag_end_time", format: "parsedMessages" },
     ];
