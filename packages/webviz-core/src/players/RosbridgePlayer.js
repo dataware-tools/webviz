@@ -450,9 +450,8 @@ export default class RosbridgePlayer implements Player {
       return;
     }
 
-    const fixedTime = toSec(time) > toSec(this._currentTime) ? time : { sec: time.sec, nsec: 0 };
     const request = new ROSLIB.ServiceRequest({
-      time: toSec(fixedTime),
+      time: toSec(time),
     });
     this._callService("/rosbag_player_controller/seek", "controllable_rosbag_player/Seek", request, () => {
       this._lastSeekTime = time;
