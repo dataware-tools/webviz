@@ -35,14 +35,6 @@ const Container = styled.div`
 `;
 
 function Sample(): React.Node {
-  // const { globalVariables, setGlobalVariables, _ } = useGlobalVariables();
-  // const params = new URLSearchParams(window.location.search);
-  // const websocketUrl = params.get(ROSBRIDGE_WEBSOCKET_URL_QUERY_KEY) || "ws://localhost:9090";
-
-  // const setClickedCheckpointId = (newId) => {
-  //   setGlobalVariables({ ["clickedCheckpointId"]: newId });
-  // };
-
   return (
     <Container>
       <PanelToolbar floating />
