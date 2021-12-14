@@ -250,13 +250,11 @@ export default class RosbridgePlayer implements Player {
         this._isPlaying = toMicroSec(this._currentTime) !== toMicroSec(nextCurrentTime);
         this._currentTime = nextCurrentTime;
         this._isServiceBusy = false;
-      }
-      if (msg.topic === "/rosbag_player_controller/rosbag_start_time") {
-        this._startTime = msg.message.clock;
+      } else if (msg.topic === "/rosbag_player_controller/rosbag_start_time") {
+        this._startTime = { sec: msg.message.clock.secs, nsec: msg.message.clock.nsecs };
         this._isServiceBusy = false;
-      }
-      if (msg.topic === "/rosbag_player_controller/rosbag_end_time") {
-        this._endTime = msg.message.clock;
+      } else if (msg.topic === "/rosbag_player_controller/rosbag_end_time") {
+        this._endTime = { sec: msg.message.clock.secs, nsec: msg.message.clock.nsecs };
         this._isServiceBusy = false;
       }
     }
@@ -329,7 +327,12 @@ export default class RosbridgePlayer implements Player {
     ];
 
     subscriptionsRequiredByRosbridgePlayer.forEach((additionalSubscription) => {
-      if (!subscriptions.some((subscription) => subscription.topic === additionalSubscription.topic)) {
+      if (
+        !subscriptions.some(
+          (subscription) =>
+            subscription.topic === additionalSubscription.topic && subscription.format === additionalSubscription.format
+        )
+      ) {
         subscriptions.push(additionalSubscription);
       }
     });
@@ -354,10 +357,7 @@ export default class RosbridgePlayer implements Player {
         this._topicSubscriptions[topicName] = new ROSLIB.Topic({
           ros: this._rosClient,
           name: topicName,
-          compression: topicName === "/clock" ? "cbor" : "cbor-raw",
         });
-        const { datatype } = availableTopicsByTopicName[topicName];
-        const messageReader = this._messageReadersByDatatype[datatype];
         this._topicSubscriptions[topicName].subscribe((message) => {
           if (!this._providerTopics) {
             return;
@@ -365,12 +365,11 @@ export default class RosbridgePlayer implements Player {
 
           const topic = topicName;
           const receiveTime = this._currentTime;
-          const innerMessage = topicName === "/clock" ? message : messageReader.readMessage(Buffer.from(message.bytes));
           if (this._bobjectTopics.has(topicName) && this._providerDatatypes) {
             this._bobjects.push({
               topic,
               receiveTime,
-              message: wrapJsObject(this._providerDatatypes, datatype, innerMessage),
+              message,
             });
           }
 
@@ -378,7 +377,7 @@ export default class RosbridgePlayer implements Player {
             this._parsedMessages.push({
               topic,
               receiveTime,
-              message: innerMessage,
+              message,
             });
           }
 
