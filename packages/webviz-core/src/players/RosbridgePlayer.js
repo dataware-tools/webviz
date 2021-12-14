@@ -155,19 +155,18 @@ export default class RosbridgePlayer implements Player {
     rosClient.getServices((services) => {
       if (services.indexOf(serviceName) !== -1) {
         targetService.callService(request, (result) => {
+          this._isServiceBusy = false;
           if (result.success) {
             if (onSuccess) {
               onSuccess(result);
             }
           } else {
-            this._isServiceBusy = false;
             if (onFail) {
               onFail(result);
             }
           }
         });
       } else {
-        this._isServiceBusy = false;
         if (onFail) {
           onFail({});
         }
