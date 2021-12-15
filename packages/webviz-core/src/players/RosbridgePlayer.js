@@ -33,7 +33,7 @@ import debouncePromise from "webviz-core/src/util/debouncePromise";
 import { FREEZE_MESSAGES } from "webviz-core/src/util/globalConstants";
 import { getTopicsByTopicName } from "webviz-core/src/util/selectors";
 import sendNotification from "webviz-core/src/util/sendNotification";
-import { fromMillis, type TimestampMethod } from "webviz-core/src/util/time";
+import { fromMillis, toSec, toMicroSec, type TimestampMethod } from "webviz-core/src/util/time";
 
 import "roslib/build/roslib";
 
@@ -58,6 +58,13 @@ export default class RosbridgePlayer implements Player {
   _start: ?Time; // The time at which we started playing.
   _topicSubscriptions: { [topicName: string]: ROSLIB.Topic } = {}; // Active subscriptions.
   _requestedSubscriptions: SubscribePayload[] = []; // Requested subscriptions by setSubscriptions()
+  _isPlaying: boolean = false;
+  _isServiceBusy: boolean = true;
+  _currentTime: ?Time;
+  _startTime: ?Time;
+  _endTime: ?Time;
+  _lastSeekTime: ?Time;
+  _playbackSpeed: number = 1.0;
   _parsedMessages: Message[] = []; // Queue of messages that we'll send in next _emitState() call.
   _bobjects: BobjectMessage[] = []; // Queue of bobjects that we'll send in next _emitState() call.
   _messageOrder: TimestampMethod = "receiveTime";
@@ -71,6 +78,10 @@ export default class RosbridgePlayer implements Player {
   constructor(url: string) {
     this._url = url;
     this._start = fromMillis(Date.now());
+    this._startTime = fromMillis(0);
+    this._currentTime = fromMillis(Date.now());
+    this._endTime = fromMillis(Date.now());
+    this._lastSeekTime = fromMillis(1); // Avoid 0 so that we don't accidentally hit falsy checks.
     this._open();
   }
 
@@ -121,6 +132,45 @@ export default class RosbridgePlayer implements Player {
 
       // Try connecting again.
       setTimeout(this._open, 1000);
+    });
+  };
+
+  _callService = (
+    serviceName: string,
+    serviceType: string,
+    request: ROSLIB.ServiceRequest,
+    onSuccess?: (result: any) => void,
+    onFail?: (result: any) => void
+  ) => {
+    const rosClient = this._rosClient;
+    if (!rosClient || this._closed) {
+      return;
+    }
+    this._isServiceBusy = true;
+    const targetService = new ROSLIB.Service({
+      ros: rosClient,
+      name: serviceName,
+      serviceType,
+    });
+    rosClient.getServices((services) => {
+      if (services.indexOf(serviceName) !== -1) {
+        targetService.callService(request, (result) => {
+          this._isServiceBusy = false;
+          if (result.success) {
+            if (onSuccess) {
+              onSuccess(result);
+            }
+          } else {
+            if (onFail) {
+              onFail(result);
+            }
+          }
+        });
+      } else {
+        if (onFail) {
+          onFail({});
+        }
+      }
     });
   };
 
@@ -193,6 +243,22 @@ export default class RosbridgePlayer implements Player {
       return Promise.resolve();
     }
 
+    // Parse messages and get current-time and rosbag information
+    for (const msg of this._parsedMessages) {
+      if (msg.topic === "/clock") {
+        const nextCurrentTime = { sec: msg.message.clock.secs, nsec: msg.message.clock.nsecs };
+        this._isPlaying = toMicroSec(this._currentTime) !== toMicroSec(nextCurrentTime);
+        this._currentTime = nextCurrentTime;
+        this._isServiceBusy = false;
+      } else if (msg.topic === "/rosbag_player_controller/rosbag_start_time") {
+        this._startTime = { sec: msg.message.clock.secs, nsec: msg.message.clock.nsecs };
+        this._isServiceBusy = false;
+      } else if (msg.topic === "/rosbag_player_controller/rosbag_end_time") {
+        this._endTime = { sec: msg.message.clock.secs, nsec: msg.message.clock.nsecs };
+        this._isServiceBusy = false;
+      }
+    }
+
     const { _providerTopics, _providerDatatypes, _start } = this;
     if (!_providerTopics || !_providerDatatypes || !_start) {
       return this._listener({
@@ -209,7 +275,7 @@ export default class RosbridgePlayer implements Player {
     // Time is always moving forward even if we don't get messages from the server.
     setTimeout(this._emitState, 100);
 
-    const currentTime = fromMillis(Date.now());
+    const { _startTime, _endTime, _currentTime, _isPlaying, _playbackSpeed, _lastSeekTime } = this;
     const messages = this._parsedMessages;
     this._parsedMessages = [];
     const bobjects = this._bobjects;
@@ -219,7 +285,7 @@ export default class RosbridgePlayer implements Player {
       showSpinner: !this._rosClient,
       showInitializing: false,
       progress: {},
-      capabilities,
+      capabilities: capabilities + [PlayerCapabilities.setSpeed],
       playerId: this._id,
 
       activeData: {
@@ -227,14 +293,12 @@ export default class RosbridgePlayer implements Player {
         bobjects,
         totalBytesReceived: this._receivedBytes,
         messageOrder: this._messageOrder,
-        startTime: _start,
-        endTime: currentTime,
-        currentTime,
-        isPlaying: true,
-        speed: 1,
-        // We don't support seeking, so we need to set this to any fixed value. Just avoid 0 so
-        // that we don't accidentally hit falsy checks.
-        lastSeekTime: 1,
+        startTime: _startTime,
+        endTime: _endTime,
+        currentTime: _currentTime,
+        isPlaying: _isPlaying,
+        speed: _playbackSpeed,
+        lastSeekTime: _lastSeekTime,
         topics: _providerTopics,
         datatypes: _providerDatatypes,
         parsedMessageDefinitionsByTopic: this._parsedMessageDefinitionsByTopic,
@@ -256,6 +320,22 @@ export default class RosbridgePlayer implements Player {
   }
 
   setSubscriptions(subscriptions: SubscribePayload[]) {
+    const subscriptionsRequiredByRosbridgePlayer = [
+      { topic: "/clock", format: "parsedMessages" },
+      { topic: "/rosbag_player_controller/rosbag_start_time", format: "parsedMessages" },
+      { topic: "/rosbag_player_controller/rosbag_end_time", format: "parsedMessages" },
+    ];
+
+    subscriptionsRequiredByRosbridgePlayer.forEach((additionalSubscription) => {
+      if (
+        !subscriptions.some(
+          (subscription) =>
+            subscription.topic === additionalSubscription.topic && subscription.format === additionalSubscription.format
+        )
+      ) {
+        subscriptions.push(additionalSubscription);
+      }
+    });
     this._requestedSubscriptions = subscriptions;
 
     if (!this._rosClient || this._closed) {
@@ -272,29 +352,24 @@ export default class RosbridgePlayer implements Player {
       .map(({ topic }) => topic)
       .filter((topicName) => availableTopicsByTopicName[topicName]);
 
-    // Subscribe to all topics that we aren't subscribed to yet.
     for (const topicName of topicNames) {
       if (!this._topicSubscriptions[topicName]) {
         this._topicSubscriptions[topicName] = new ROSLIB.Topic({
           ros: this._rosClient,
           name: topicName,
-          compression: "cbor-raw",
         });
-        const { datatype } = availableTopicsByTopicName[topicName];
-        const messageReader = this._messageReadersByDatatype[datatype];
         this._topicSubscriptions[topicName].subscribe((message) => {
           if (!this._providerTopics) {
             return;
           }
 
           const topic = topicName;
-          const receiveTime = fromMillis(Date.now());
-          const innerMessage = messageReader.readMessage(Buffer.from(message.bytes));
+          const receiveTime = this._currentTime;
           if (this._bobjectTopics.has(topicName) && this._providerDatatypes) {
             this._bobjects.push({
               topic,
               receiveTime,
-              message: wrapJsObject(this._providerDatatypes, datatype, innerMessage),
+              message,
             });
           }
 
@@ -302,7 +377,7 @@ export default class RosbridgePlayer implements Player {
             this._parsedMessages.push({
               topic,
               receiveTime,
-              message: innerMessage,
+              message,
             });
           }
 
@@ -351,10 +426,54 @@ export default class RosbridgePlayer implements Player {
   }
 
   // Bunch of unsupported stuff. Just don't do anything for these.
-  startPlayback() {}
-  pausePlayback() {}
-  seekPlayback(_time: Time) {}
-  setPlaybackSpeed(_speedFraction: number) {}
+  startPlayback() {
+    if (this._isServiceBusy) {
+      return;
+    }
+    const request = new ROSLIB.ServiceRequest({});
+    this._callService("/rosbag_player_controller/play", "std_srv/Trigger", request, () => {
+      this._isPlaying = true;
+    });
+  }
+  pausePlayback() {
+    if (this._isServiceBusy) {
+      return;
+    }
+
+    const request = new ROSLIB.ServiceRequest({});
+    this._callService("/rosbag_player_controller/pause", "std_srv/Trigger", request, () => {
+      this._isPlaying = false;
+    });
+  }
+  seekPlayback(time: Time) {
+    if (this._isServiceBusy) {
+      return;
+    }
+
+    const request = new ROSLIB.ServiceRequest({
+      time: toSec(time),
+    });
+    this._callService("/rosbag_player_controller/seek", "controllable_rosbag_player/Seek", request, () => {
+      this._lastSeekTime = time;
+    });
+  }
+  setPlaybackSpeed(speedFraction: number) {
+    if (this._isServiceBusy) {
+      return;
+    }
+
+    const request = new ROSLIB.ServiceRequest({
+      speed: speedFraction,
+    });
+    this._callService(
+      "/rosbag_player_controller/set_playback_speed",
+      "controllable_rosbag_player/SetPlaybackSpeed",
+      request,
+      () => {
+        this._playbackSpeed = speedFraction;
+      }
+    );
+  }
   requestBackfill() {}
   setGlobalVariables() {}
   setMessageOrder() {}
