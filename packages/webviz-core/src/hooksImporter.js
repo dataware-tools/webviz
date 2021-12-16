@@ -42,6 +42,7 @@ export function panelsByCategory() {
   const Table = require("webviz-core/src/panels/Table").default;
   const CurrentCaption = require("webviz-core/src/panels/CurrentCaption").default;
   const SceneSelector = require("webviz-core/src/panels/SceneSelector").default;
+  const MapViewer = require("webviz-core/src/panels/Map").default;
 
   const ros = [
     { title: "2D Plot", component: TwoDimensionalPlot },
@@ -78,6 +79,7 @@ export function panelsByCategory() {
   const sceneViewer = [
     { title: "Current caption", component: CurrentCaption },
     { title: "Scene selector", component: SceneSelector },
+    { title: "Map", component: MapViewer },
   ];
 
   return { ros, utilities, debugging, sceneViewer };
