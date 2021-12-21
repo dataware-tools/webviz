@@ -16,8 +16,8 @@ const Container = styled.div`
 `;
 
 function MapPanel(): React.Node {
-  const { trajectory } = useRosLib({
-    topicNames: ["/scene_viewer/vehicle_trajectory"],
+  const { currentPosition, trajectory } = useRosLib({
+    topicNames: ["/sensing/gnss/ublox/nav_sat_fix", "/scene_viewer/vehicle_trajectory"],
   });
 
   const { globalVariables } = useGlobalVariables();
@@ -28,6 +28,7 @@ function MapPanel(): React.Node {
       <PanelToolbar floating />
       <Map
         centerPosition={[35.1505536926114, 136.96585423505437]}
+        currentPosition={[currentPosition.latitude, currentPosition.longitude]}
         markers={pinLocations.map((item) => {
           return {
             longitude: item.longitude,
